@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
@@ -37,10 +38,12 @@ func Hasher(filename string, expectedHashBytes []byte, hasher hash.Hash, start i
 		return
 	}
 
+	reader := bufio.NewReader(file)
+
 	data := make([]byte, 1)
 	var readBytes int64 = start
 	for *running {
-		count, err := file.Read(data)
+		count, err := reader.Read(data)
 		readBytes += int64(count)
 		if err != nil {
 			if err == io.EOF {
