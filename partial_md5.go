@@ -4,23 +4,41 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/hex"
+	"hash"
 	"io"
 	"log"
 	"os"
+	"reflect"
 	"sync"
 )
 
-func Hasher(filename string, expectedHashBytes []byte, start int64, end int64, running *bool) {
+//From Reddit, bad idea
+func copyHash(src hash.Hash) hash.Hash {
+	typ := reflect.TypeOf(src)
+	val := reflect.ValueOf(src)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
+		val = val.Elem()
+	}
+	elem := reflect.New(typ).Elem()
+	elem.Set(val)
+	return elem.Addr().Interface().(hash.Hash)
+}
+
+func Hasher(filename string, expectedHashBytes []byte, hasher hash.Hash, start int64, end int64, running *bool) {
 	log.Printf("Worker hashing from %d to %d", start, end)
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Fatal(err)
 	}
+	_, err = file.Seek(start, io.SeekStart)
+	if err != nil {
+		log.Printf("Error seeking to start position: %v", err)
+		return
+	}
 
-	h := md5.New()
-
-	data := make([]byte, 8192)
-	var readBytes int64
+	data := make([]byte, 1)
+	var readBytes int64 = start
 	for *running {
 		count, err := file.Read(data)
 		readBytes += int64(count)
@@ -30,18 +48,14 @@ func Hasher(filename string, expectedHashBytes []byte, start int64, end int64, r
 			}
 			log.Printf("Error reading: %v", err)
 		}
-		h.Write(data[:count])
-		hhash := h.Sum(nil)
+		hasher.Write(data[:count])
+		hhash := hasher.Sum(nil)
 		if bytes.Compare(hhash, expectedHashBytes) == 0 {
 			log.Printf("Found hash %x after %d bytes", expectedHashBytes, readBytes)
 			*running = false
 			break
 		}
-		if readBytes >= (start) && len(data) > 10 {
-			//log.Printf("Skipped until %d", readBytes)
-			data = make([]byte, 1)
-		}
-		if readBytes > end+8192 {
+		if readBytes > end {
 			break
 		}
 	}
@@ -67,20 +81,42 @@ func main() {
 	}
 	log.Printf("The file is %d bytes long", fi.Size())
 
-	var chunkSize int64
-	chunkSize = (fi.Size() / 12) + 1024
+	file, err := os.Open(filename)
+	if err != nil {
+		log.Fatalf("Error opening file: %v", err)
+	}
+	hasher := md5.New()
 
-	var wg sync.WaitGroup
-
-	var start int64
 	var running bool
 	running = true
-	for start = 0; start < fi.Size(); start += chunkSize {
+	var wg sync.WaitGroup
+
+	var cur, pos int64
+	var chunkSize int64
+	chunkSize = 128 * 1024 * 1024
+	buf := make([]byte, 1024)
+
+	for pos < fi.Size() {
+
 		wg.Add(1)
-		go func(startByte int64) {
-			Hasher(filename, expectedHashBytes, startByte, startByte+chunkSize, &running)
+		go func(startByte int64, hasher hash.Hash) {
+			Hasher(filename, expectedHashBytes, hasher, startByte, startByte+chunkSize, &running)
 			wg.Done()
-		}(start)
+		}(pos, copyHash(hasher))
+
+		//Advance the file and the hasher by chunkSize bytes
+		for cur < pos+chunkSize {
+			count, err := file.Read(buf)
+			if err != nil {
+				if err != io.EOF {
+					log.Fatal(err)
+				}
+				break
+			}
+			cur += int64(count)
+			hasher.Write(buf[:count])
+		}
+		pos = cur
 	}
 	wg.Wait()
 
