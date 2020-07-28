@@ -27,7 +27,7 @@ func copyHash(src hash.Hash) hash.Hash {
 }
 
 func Hasher(filename string, expectedHashBytes []byte, hasher hash.Hash, start int64, end int64, running *bool) {
-	log.Printf("Worker hashing from %d to %d", start, end)
+	//log.Printf("Worker hashing from %d to %d", start, end)
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Fatal(err)
