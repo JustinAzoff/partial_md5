@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"reflect"
+	"runtime"
 	"sync"
 )
 
@@ -96,7 +97,8 @@ func main() {
 
 	var cur, pos int64
 	var chunkSize int64
-	chunkSize = 128 * 1024 * 1024
+	chunkSize = fi.Size() / int64(runtime.NumCPU())
+	log.Printf("Using a chunksize of %d for %d CPUs", chunkSize, runtime.NumCPU())
 	buf := make([]byte, 1024)
 
 	for pos < fi.Size() {
